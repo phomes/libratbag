@@ -111,6 +111,13 @@ hidpp10_set_individual_feature(struct hidpp10_device *dev,
 /* -------------------------------------------------------------------------- */
 /* 0x0F: Profile queries                                                      */
 /* -------------------------------------------------------------------------- */
+
+enum hidpp10_profile_type {
+	PROFILE_TYPE_1 = 0,
+	PROFILE_TYPE_2,
+	PROFILE_TYPE_INVALID,
+};
+
 #define PROFILE_NUM_BUTTONS				13
 #define PROFILE_NUM_DPI_MODES				5
 #define PROFILE_BUTTON_TYPE_BUTTON			0x81
@@ -241,7 +248,7 @@ hidpp10_get_pairing_information_device_name(struct hidpp10_device *dev,
 
 /* FIXME: that's what my G500s supports, but only pages 3-5 are valid.
  * 0 is zeroed, 1 and 2 are garbage, all above 6 is garbage */
-#define HIDPP10_NUM_PROFILES 3
+#define HIDPP10_NUM_PROFILES 5
 struct hidpp10_device  {
 	struct ratbag_device *ratbag_device;
 	unsigned index;
@@ -257,5 +264,6 @@ struct hidpp10_device  {
 	bool led[4];
 	int8_t current_profile;
 	struct hidpp10_profile profiles[HIDPP10_NUM_PROFILES];
+        enum hidpp10_profile_type profile_type;
 };
 #endif /* HIDPP_10_H */

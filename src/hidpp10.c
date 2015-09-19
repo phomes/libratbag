@@ -340,7 +340,7 @@ hidpp10_set_individual_feature(struct hidpp10_device *dev,
 	} \
 }
 
-struct _hidpp10_dpi_mode {
+struct _hidpp10_dpi_mode1 {
 	uint16_t xres;
 	uint16_t yres;
 	uint8_t led1:4;
@@ -348,7 +348,16 @@ struct _hidpp10_dpi_mode {
 	uint8_t led3:4;
 	uint8_t led4:4;
 } __attribute__((packed));
-_Static_assert(sizeof(struct _hidpp10_dpi_mode) == 6, "Invalid size");
+_Static_assert(sizeof(struct _hidpp10_dpi_mode1) == 6, "Invalid size");
+
+struct _hidpp10_dpi_mode2 {
+	uint8_t res;
+	uint8_t led1:4;
+	uint8_t led2:4;
+	uint8_t led3:4;
+	uint8_t led4:4;
+} __attribute__((packed));
+_Static_assert(sizeof(struct _hidpp10_dpi_mode2) == 3, "Invalid size");
 
 union _hidpp10_button_binding {
 	struct {
@@ -384,23 +393,35 @@ union _hidpp10_button_binding {
 } __attribute__((packed));
 _Static_assert(sizeof(union _hidpp10_button_binding) == 3, "Invalid size");
 
-struct _hidpp10_profile {
-	uint8_t red;
-	uint8_t green;
-	uint8_t blue;
-	uint8_t unknown;
-	struct _hidpp10_dpi_mode dpi_modes[PROFILE_NUM_DPI_MODES];
+struct _hidpp10_profile1 {
+	uint8_t unknown[4];
+	struct _hidpp10_dpi_mode1 dpi_modes[PROFILE_NUM_DPI_MODES];
 	uint8_t angle_correction;
 	uint8_t default_dpi_mode;
 	uint8_t unknown2[2];
 	uint8_t usb_refresh_rate;
 	union _hidpp10_button_binding buttons[PROFILE_NUM_BUTTONS];
 } __attribute__((packed));
-_Static_assert(sizeof(struct _hidpp10_profile) == 78, "Invalid size");
+_Static_assert(sizeof(struct _hidpp10_profile1) == 78, "Invalid size");
+
+struct _hidpp10_profile2 {
+	uint8_t red;
+	uint8_t green;
+	uint8_t blue;
+	uint8_t unknown;
+	struct _hidpp10_dpi_mode2 dpi_modes[5];
+	uint8_t default_dpi_mode;
+	uint8_t unknown2[2];
+	uint8_t usb_refresh_rate;
+	union _hidpp10_button_binding buttons[10];
+	uint8_t unknown3[3];
+} __attribute__((packed));
+_Static_assert(sizeof(struct _hidpp10_profile2) == 56, "Invalid size");
 
 union _hidpp10_profile_data {
-	struct _hidpp10_profile profile;
-	uint8_t data[((sizeof(struct _hidpp10_profile) + 15)/16)*16];
+	struct _hidpp10_profile1 profile;
+	struct _hidpp10_profile2 profile2;
+	uint8_t data[((sizeof(struct _hidpp10_profile1) + 15)/16)*16];
 };
 _Static_assert((sizeof(union _hidpp10_profile_data) % 16) == 0, "Invalid size");
 
@@ -433,10 +454,12 @@ hidpp10_get_profile(struct hidpp10_device *dev, int8_t number, struct hidpp10_pr
 {
 	struct ratbag *ratbag = dev->ratbag_device->ratbag;
 	union _hidpp10_profile_data data;
-	struct _hidpp10_profile *p = &data.profile;
+	struct _hidpp10_profile1 *p = &data.profile;
+	struct _hidpp10_profile2 *p2 = &data.profile2;
 	size_t i;
 	int res;
 	struct hidpp10_profile profile;
+	union _hidpp10_button_binding *buttons;
 
 	/* FIXME: profile offset appears to be 3, 1 and 2 are garbage */
 	number += 2;
@@ -449,32 +472,60 @@ hidpp10_get_profile(struct hidpp10_device *dev, int8_t number, struct hidpp10_pr
 			return res;
 	}
 
-	profile.red = p->red;
-	profile.green = p->green;
-	profile.blue = p->blue;
-	profile.angle_correction = p->angle_correction;
-	profile.default_dpi_mode = p->default_dpi_mode;
-	profile.refresh_rate = p->usb_refresh_rate ? 1000/p->usb_refresh_rate : 0;
+	switch(dev->profile_type)
+	{
+		case PROFILE_TYPE_1:
+			profile.angle_correction = p->angle_correction;
+			profile.default_dpi_mode = p->default_dpi_mode;
+			profile.refresh_rate = p->usb_refresh_rate ? 1000/p->usb_refresh_rate : 0;
 
-	profile.num_dpi_modes = PROFILE_NUM_DPI_MODES;
-	for (i = 0; i < PROFILE_NUM_DPI_MODES; i++) {
-		uint8_t *be; /* in big endian */
-		struct _hidpp10_dpi_mode *dpi = &p->dpi_modes[i];
+			profile.num_dpi_modes = PROFILE_NUM_DPI_MODES;
+			for (i = 0; i < PROFILE_NUM_DPI_MODES; i++) {
+				uint8_t *be; /* in big endian */
+				struct _hidpp10_dpi_mode1 *dpi = &p->dpi_modes[i];
 
-		be = (uint8_t*)&dpi->xres;
-		profile.dpi_modes[i].xres = hidpp10_get_unaligned_u16(be) * 50;
-		be = (uint8_t*)&dpi->yres;
-		profile.dpi_modes[i].yres = hidpp10_get_unaligned_u16(be) * 50;
+				be = (uint8_t*)&dpi->xres;
+				profile.dpi_modes[i].xres = hidpp10_get_unaligned_u16(be) * 50;
+				be = (uint8_t*)&dpi->yres;
+				profile.dpi_modes[i].yres = hidpp10_get_unaligned_u16(be) * 50;
 
-		profile.dpi_modes[i].led[0] = dpi->led1 == 0x2;
-		profile.dpi_modes[i].led[1] = dpi->led2 == 0x2;
-		profile.dpi_modes[i].led[2] = dpi->led3 == 0x2;
-		profile.dpi_modes[i].led[3] = dpi->led4 == 0x2;
+				profile.dpi_modes[i].led[0] = dpi->led1 == 0x2;
+				profile.dpi_modes[i].led[1] = dpi->led2 == 0x2;
+				profile.dpi_modes[i].led[2] = dpi->led3 == 0x2;
+				profile.dpi_modes[i].led[3] = dpi->led4 == 0x2;
+			}
+			profile.num_buttons =  PROFILE_NUM_BUTTONS;
+			buttons = p->buttons;
+			break;
+		case PROFILE_TYPE_2:
+			profile.red = p2->red;
+			profile.green = p2->green;
+			profile.blue = p2->blue;
+			profile.angle_correction = 0;
+			profile.default_dpi_mode = p2->default_dpi_mode;
+			profile.refresh_rate = p2->usb_refresh_rate ? 1000/p2->usb_refresh_rate : 0;
+
+			profile.num_dpi_modes = 5;
+			for (i = 0; i < 5; i++) {
+				struct _hidpp10_dpi_mode2 *dpi = &p2->dpi_modes[i];
+
+				profile.dpi_modes[i].xres = (dpi->res & 0x7F) * 200;
+				profile.dpi_modes[i].yres = profile.dpi_modes[i].xres;
+
+				profile.dpi_modes[i].led[0] = dpi->led1 == 0x2;
+				profile.dpi_modes[i].led[1] = dpi->led2 == 0x2;
+				profile.dpi_modes[i].led[2] = dpi->led3 == 0x2;
+				profile.dpi_modes[i].led[3] = dpi->led4 == 0x2;
+			}
+			profile.num_buttons = 10;
+			buttons = p2->buttons;
+			break;
+		default:
+			return 0;
 	}
 
-	profile.num_buttons = PROFILE_NUM_BUTTONS;
-	for (i = 0; i < PROFILE_NUM_BUTTONS; i++) {
-		union _hidpp10_button_binding *b = &p->buttons[i];
+	for (i = 0; i < profile.num_buttons; i++) {
+		union _hidpp10_button_binding *b = &buttons[i];
 		union hidpp10_button *button = &profile.buttons[i];
 
 		button->any.type = b->any.type;
@@ -513,16 +564,16 @@ hidpp10_get_profile(struct hidpp10_device *dev, int8_t number, struct hidpp10_pr
 			profile.dpi_modes[i].yres);
 	        log_raw(ratbag,
 			"LED status: 1:%s 2:%s 3:%s 4:%s\n",
-			(p->dpi_modes[i].led1 & 0x2) ? "on" : "off",
-			(p->dpi_modes[i].led2 & 0x2) ? "on" : "off",
-			(p->dpi_modes[i].led3 & 0x2) ? "on" : "off",
-			(p->dpi_modes[i].led4 & 0x2) ? "on" : "off");
+			profile.dpi_modes[i].led[0] ? "on" : "off",
+			profile.dpi_modes[i].led[1] ? "on" : "off",
+			profile.dpi_modes[i].led[2] ? "on" : "off",
+			profile.dpi_modes[i].led[3] ? "on" : "off");
 	}
 	log_raw(ratbag, "Angle correction: %d\n", profile.angle_correction);
 	log_raw(ratbag, "Default DPI mode: %d\n", profile.default_dpi_mode);
 	log_raw(ratbag, "Refresh rate: %d\n", profile.refresh_rate);
-	for (i = 0; i < 13; i++) {
-		union _hidpp10_button_binding *button = &p->buttons[i];
+	for (i = 0; i < profile.num_buttons; i++) {
+		union _hidpp10_button_binding *button = &buttons[i];
 		switch (button->any.type) {
 		case PROFILE_BUTTON_TYPE_BUTTON:
 			log_raw(ratbag,

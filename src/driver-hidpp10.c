@@ -229,6 +229,9 @@ hidpp10drv_probe(struct ratbag_device *device, const struct ratbag_id id)
 		goto err;
 	}
 
+	/* FIXME: check for type here */
+	dev->profile_type = PROFILE_TYPE_2;
+
 	drv_data->dev = dev;
 	ratbag_set_drv_data(device, drv_data);
 
