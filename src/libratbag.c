@@ -355,15 +355,6 @@ out:
 	return rc;
 }
 
-static inline bool
-ratbag_match_id(const struct input_id *dev_id, const struct input_id *match_id)
-{
-	return (match_id->bustype == BUS_ANY || match_id->bustype == dev_id->bustype) &&
-		(match_id->vendor == VENDOR_ANY || match_id->vendor == dev_id->vendor) &&
-		(match_id->product == PRODUCT_ANY || match_id->product == dev_id->product) &&
-		(match_id->version == VERSION_ANY || match_id->version == dev_id->version);
-}
-
 struct ratbag_driver *
 ratbag_find_driver(struct ratbag_device *device,
 		   const struct input_id *dev_id,
@@ -371,42 +362,31 @@ ratbag_find_driver(struct ratbag_device *device,
 {
 	struct ratbag *ratbag = device->ratbag;
 	struct ratbag_driver *driver;
-	const struct ratbag_id *matching_id;
-	struct ratbag_id matched_id;
 	int rc;
+	const char *driver_name;
 
-	matched_id.test_device = test_device;
-
+	driver_name = udev_prop_value(device->udev_device, "RATBAG_DRIVER");
 	list_for_each(driver, &ratbag->drivers, link) {
-		log_debug(ratbag, "trying driver '%s'\n", driver->name);
-		matching_id = driver->table_ids;
-		do {
-			if (ratbag_match_id(dev_id, &matching_id->id)) {
-				matched_id.id = *dev_id;
-				matched_id.data = matching_id->data;
-				matched_id.svg_filename = matching_id->svg_filename;
-				device->driver = driver;
-				rc = driver->probe(device, matched_id);
-				if (rc == 0) {
-					if (!ratbag_sanity_check_device(device)) {
-						return NULL;
-					} else {
-						log_debug(ratbag, "driver match found\n");
-						device->svg_name = matching_id->svg_filename;
-						return driver;
-					}
-				}
+		if (!streq(driver->id, driver_name))
+			continue;
 
-				device->driver = NULL;
+		device->driver = driver;
+		device->svg_name = udev_prop_value(device->udev_device, "RATBAG_SVG");
 
-				if (rc != -ENODEV)
-					return NULL;
+		rc = driver->probe(device);
+		if (rc == 0) {
+			if (!ratbag_sanity_check_device(device)) {
+				return NULL;
+			} else {
+				log_debug(ratbag, "driver match found: s%\n", driver->name);
+				return driver;
 			}
-			matching_id++;
-		} while (matching_id->id.bustype != 0 ||
-			 matching_id->id.vendor != 0 ||
-			 matching_id->id.product != 0 ||
-			 matching_id->id.version != 0);
+		}
+
+		device->driver = NULL;
+
+		if (rc != -ENODEV)
+			return NULL;
 	}
 
 	return NULL;
@@ -543,7 +523,7 @@ ratbag_register_driver(struct ratbag *ratbag, struct ratbag_driver *driver)
 		return;
 	}
 
-	if (!driver->probe || !driver->remove || !driver->table_ids) {
+	if (!driver->probe || !driver->remove) {
 		log_bug_libratbag(ratbag, "Driver %s is incomplete.\n");
 		return;
 	}
